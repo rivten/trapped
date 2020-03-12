@@ -1,3 +1,12 @@
+#define STB_TRUETYPE_IMPLEMENTATION
+//#include "stb_rect_pack.h"
+#include "stb_truetype.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#define TEXTURE_ARRAY_DIM 512
+
 struct textured_vertex
 {
 	v4 P;
@@ -21,6 +30,10 @@ struct renderer_state
 
 	u32 MaxVertexCount;
 	u32 MaxIndexCount;
+
+	u32 FontCharBegin;
+	u32 FontCharCount;
+	stbtt_bakedchar* BakedCharData;
 };
 
 gb_internal void RendererInit(renderer_state* State)
@@ -53,34 +66,87 @@ gb_internal void RendererInit(renderer_state* State)
 	IndexBufferDesc.label = "IndexBuffer";
 	State->IndexBuffer = sg_make_buffer(&IndexBufferDesc);
 
-	u32 ImageContentSize = sizeof(u32) * 2 * TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM;
-	void* PixelContent = gb_malloc(ImageContentSize);
+	u32 ImageContentSize = 2 * 4 * TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM;
+	u8* PixelContent = (u8 *)gb_malloc(ImageContentSize);
 	defer(gb_mfree(PixelContent));
 
-	gbFile* TilesetFile = gb_file_get_standard(gbFileStandard_Input);
-	gbFileError TilesetOpenFileError = gb_file_open_mode(TilesetFile, gbFileMode_Read, "../data/roguelike_tileset.png");
-	Assert(TilesetOpenFileError == gbFileError_None);
+	{
+		// NOTE(hugo): Loading the tileset bitmap
+		gbFile* TilesetFile = gb_file_get_standard(gbFileStandard_Input);
+		gbFileError TilesetOpenFileError = gb_file_open_mode(TilesetFile, gbFileMode_Read, "../data/roguelike_tileset.png");
+		Assert(TilesetOpenFileError == gbFileError_None);
 
-	i64 TilesetFileSize = gb_file_size(TilesetFile);
-	Assert(TilesetFileSize > 0);
+		i64 TilesetFileSize = gb_file_size(TilesetFile);
+		Assert(TilesetFileSize > 0);
 
-	u8* TilesetFileContent = (u8 *)gb_malloc(TilesetFileSize);
-	gb_file_read(TilesetFile, TilesetFileContent, TilesetFileSize);
+		u8* TilesetFileContent = (u8 *)gb_malloc(TilesetFileSize);
+		gb_file_read(TilesetFile, TilesetFileContent, TilesetFileSize);
+		defer(gb_mfree(TilesetFileContent));
 
-	gbFileError TilesetCloseFileError = gb_file_close(TilesetFile);
-	Assert(TilesetCloseFileError == gbFileError_None);
+		gbFileError TilesetCloseFileError = gb_file_close(TilesetFile);
+		Assert(TilesetCloseFileError == gbFileError_None);
 
-	i32 TilesetWidth = 0;
-	i32 TilesetHeight = 0;
-	i32 TilesetChannelCount = 0;
-	i32 DesiredChannels = 4;
+		i32 TilesetWidth = 0;
+		i32 TilesetHeight = 0;
+		i32 TilesetChannelCount = 0;
+		i32 DesiredChannels = 4;
 
-	u8* TilesetPixels = stbi_load_from_memory(TilesetFileContent, TilesetFileSize, &TilesetWidth, &TilesetHeight, &TilesetChannelCount, DesiredChannels);
-	gb_mfree(TilesetFileContent);
+		u8* TilesetPixels = stbi_load_from_memory(TilesetFileContent, TilesetFileSize, &TilesetWidth, &TilesetHeight, &TilesetChannelCount, DesiredChannels);
+		defer(stbi_image_free(TilesetPixels));
 
-	gb_memcopy(PixelContent, TilesetPixels, TilesetWidth * TilesetHeight * DesiredChannels);
+		u32 TilesetByteSize = TilesetWidth * TilesetHeight * DesiredChannels;
 
-	stbi_image_free(TilesetPixels);
+		for(u32 ByteIndex = 0; ByteIndex < TilesetByteSize; ++ByteIndex)
+		{
+			if(ByteIndex % 4 != 3)
+			{
+				TilesetPixels[ByteIndex] = 255;
+			}
+		}
+
+		gb_memcopy(PixelContent, TilesetPixels, TilesetByteSize);
+	}
+
+	{
+		// NOTE(hugo): Loading the font bitmap
+		gbFile* FontFile = gb_file_get_standard(gbFileStandard_Input);
+		gbFileError FontOpenFileError = gb_file_open_mode(FontFile, gbFileMode_Read, "../data/LiberationMono-Regular.ttf");
+		Assert(FontOpenFileError == gbFileError_None);
+
+		i64 FontFileSize = gb_file_size(FontFile);
+		Assert(FontFileSize > 0);
+
+		u8* FontFileContent = (u8 *)gb_malloc(FontFileSize);
+		gb_file_read(FontFile, FontFileContent, FontFileSize);
+		defer(gb_mfree(FontFileContent));
+
+		gbFileError FontCloseFileError = gb_file_close(FontFile);
+		Assert(FontCloseFileError == gbFileError_None);
+
+		State->FontCharBegin = 32;
+		State->FontCharCount = 96;
+		State->BakedCharData = (stbtt_bakedchar *)gb_malloc(State->FontCharCount * sizeof(stbtt_bakedchar));
+		f32 FontHeight = 32.0f;
+
+		// TODO(hugo): Do this on the stack ??
+		u8* TempFontPixels = (u8 *)gb_malloc(TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM);
+		defer(gb_mfree(TempFontPixels));
+
+		stbtt_BakeFontBitmap(FontFileContent, 0, FontHeight, TempFontPixels, TEXTURE_ARRAY_DIM, TEXTURE_ARRAY_DIM, State->FontCharBegin, State->FontCharCount, State->BakedCharData);
+
+		u32 FontByteSize = TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM * 4;
+		u8* FontPixels = (u8 *)gb_malloc(FontByteSize);
+		defer(gb_mfree(FontPixels));
+		for(u32 ByteIndex = 0; ByteIndex < TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM; ++ByteIndex)
+		{
+			FontPixels[4 * ByteIndex + 0] = 255;
+			FontPixels[4 * ByteIndex + 1] = 255;
+			FontPixels[4 * ByteIndex + 2] = 255;
+			FontPixels[4 * ByteIndex + 3] = TempFontPixels[ByteIndex];
+		}
+
+		gb_memcopy(PixelContent + (TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM * 4), FontPixels, FontByteSize);
+	}
 
 	sg_image_content ImageContent = {};
 	ImageContent.subimage[0][0].ptr = PixelContent;

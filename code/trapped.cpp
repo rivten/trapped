@@ -10,11 +10,6 @@
 #define GB_IMPLEMENTATION
 #include "gb.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
-#define TEXTURE_ARRAY_DIM 512
-
 #define Assert(cond) GB_ASSERT(cond)
 
 #include "types.h"
