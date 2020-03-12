@@ -6,30 +6,36 @@ struct textured_vertex
     u32 TextureIndex;
 };
 
-gb_global sg_pipeline GlobalPipeline = {};
-gb_global sg_bindings GlobalBindings = {};
-gb_global sg_buffer GlobalVertexBuffer = {};
-gb_global sg_buffer GlobalIndexBuffer = {};
+struct renderer_state
+{
+	sg_pipeline Pipeline;
+	sg_bindings Bindings;
+	sg_buffer VertexBuffer;
+	sg_buffer IndexBuffer;
 
-gb_global u32 GlobalVertexCount = 0;
-gb_global textured_vertex* GlobalVertexArray = 0;
+	u32 VertexCount;
+	textured_vertex* VertexArray;
 
-gb_global u32 GlobalIndexCount = 0;
-gb_global u16* GlobalIndexArray = 0;
+	u32 IndexCount;
+	u16* IndexArray;
 
-gb_global u32 GlobalMaxVertexCount = (1 << 8);
-gb_global u32 GlobalMaxIndexCount = (1 << 8);
+	u32 MaxVertexCount;
+	u32 MaxIndexCount;
+};
 
-void RendererInit()
+gb_internal void RendererInit(renderer_state* State)
 {
 	sg_desc GFXDesc = {};
 	sg_setup(&GFXDesc);
 
-	u32 VertexSize = GlobalMaxVertexCount * sizeof(textured_vertex);
-	GlobalVertexArray = (textured_vertex *)gb_malloc(VertexSize);
+	State->MaxVertexCount = 1 << 8;
+	State->MaxIndexCount = 1 << 8;
 
-	u32 IndexSize = GlobalMaxIndexCount * sizeof(u16);
-	GlobalIndexArray = (u16 *)gb_malloc(IndexSize);
+	u32 VertexSize = State->MaxVertexCount * sizeof(textured_vertex);
+	State->VertexArray = (textured_vertex *)gb_malloc(VertexSize);
+
+	u32 IndexSize = State->MaxIndexCount * sizeof(u16);
+	State->IndexArray = (u16 *)gb_malloc(IndexSize);
 
 	sg_buffer_desc VertexBufferDesc = {};
 	VertexBufferDesc.size = VertexSize;
@@ -37,7 +43,7 @@ void RendererInit()
 	VertexBufferDesc.type = SG_BUFFERTYPE_VERTEXBUFFER;
 	VertexBufferDesc.usage = SG_USAGE_STREAM;
 	VertexBufferDesc.label = "VertexBuffer";
-	GlobalVertexBuffer = sg_make_buffer(&VertexBufferDesc);
+	State->VertexBuffer = sg_make_buffer(&VertexBufferDesc);
 
 	sg_buffer_desc IndexBufferDesc = {};
 	IndexBufferDesc.size = IndexSize;
@@ -45,7 +51,7 @@ void RendererInit()
 	IndexBufferDesc.type = SG_BUFFERTYPE_INDEXBUFFER;
 	IndexBufferDesc.usage = SG_USAGE_STREAM;
 	IndexBufferDesc.label = "IndexBuffer";
-	GlobalIndexBuffer = sg_make_buffer(&IndexBufferDesc);
+	State->IndexBuffer = sg_make_buffer(&IndexBufferDesc);
 
 	u32 ImageContentSize = sizeof(u32) * 2 * TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM;
 	void* PixelContent = gb_malloc(ImageContentSize);
@@ -153,20 +159,20 @@ void RendererInit()
     PipelineDesc.blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
 	PipelineDesc.label = "Pipeline";
 
-	GlobalPipeline = sg_make_pipeline(&PipelineDesc);
+	State->Pipeline = sg_make_pipeline(&PipelineDesc);
 
-	GlobalBindings.vertex_buffers[0] = GlobalVertexBuffer;
-	GlobalBindings.index_buffer = GlobalIndexBuffer;
-	GlobalBindings.fs_images[0] = Image;
+	State->Bindings.vertex_buffers[0] = State->VertexBuffer;
+	State->Bindings.index_buffer = State->IndexBuffer;
+	State->Bindings.fs_images[0] = Image;
 }
 
-void RendererBeginFrame()
+gb_internal void RendererBeginFrame(renderer_state* State)
 {
-	GlobalVertexCount = 0;
-	GlobalIndexCount = 0;
+	State->VertexCount = 0;
+	State->IndexCount = 0;
 }
 
-void RendererEndFrame()
+gb_internal void RendererEndFrame(renderer_state* State)
 {
 	u32 AppWidth = sapp_width();
 	u32 AppHeight = sapp_height();
@@ -177,34 +183,39 @@ void RendererEndFrame()
 	Action.colors[0].val[2] = 0.2f;
 	Action.colors[0].val[3] = 1.0f;
 
-	sg_update_buffer(GlobalVertexBuffer, GlobalVertexArray, GlobalVertexCount * sizeof(textured_vertex));
-	sg_update_buffer(GlobalIndexBuffer, GlobalIndexArray, GlobalIndexCount * sizeof(u16));
+	sg_update_buffer(State->VertexBuffer, State->VertexArray, State->VertexCount * sizeof(textured_vertex));
+	sg_update_buffer(State->IndexBuffer, State->IndexArray, State->IndexCount * sizeof(u16));
 
 	sg_begin_default_pass(&Action, AppWidth, AppHeight);
-	sg_apply_pipeline(GlobalPipeline);
-	sg_apply_bindings(&GlobalBindings);
-	sg_draw(0, GlobalIndexCount, 1);
+	sg_apply_pipeline(State->Pipeline);
+	sg_apply_bindings(&State->Bindings);
+	sg_draw(0, State->IndexCount, 1);
 	sg_end_pass();
 
 	sg_commit();
 }
 
-inline void PushQuad(u32 TextureIndex,
+void RendererShutdown()
+{
+	sg_shutdown();
+}
+
+inline void PushQuad(renderer_state* State, u32 TextureIndex,
 		v4 P0, v2 UV0, u32 C0,
 		v4 P1, v2 UV1, u32 C1,
 		v4 P2, v2 UV2, u32 C2,
 		v4 P3, v2 UV3, u32 C3)
 {
-    u32 VertIndex = GlobalVertexCount;
-    u32 IndexIndex = GlobalIndexCount;
+    u32 VertIndex = State->VertexCount;
+    u32 IndexIndex = State->IndexCount;
 
-    GlobalVertexCount += 4;
-    GlobalIndexCount += 6;
-    Assert(GlobalVertexCount <= GlobalMaxVertexCount);
-    Assert(GlobalIndexCount <= GlobalMaxIndexCount);
+    State->VertexCount += 4;
+    State->IndexCount += 6;
+    Assert(State->VertexCount <= State->MaxVertexCount);
+    Assert(State->IndexCount <= State->MaxIndexCount);
 
-    textured_vertex *Vert = GlobalVertexArray + VertIndex;
-    u16 *Index = GlobalIndexArray + IndexIndex;
+    textured_vertex *Vert = State->VertexArray + VertIndex;
+    u16 *Index = State->IndexArray + IndexIndex;
 
     v2 InvUV = {1.0f / (f32)TEXTURE_ARRAY_DIM, 1.0f / (f32)TEXTURE_ARRAY_DIM};
 
@@ -245,19 +256,19 @@ inline void PushQuad(u32 TextureIndex,
     Index[5] = VI + 2;
 }
 
-inline void PushQuad(u32 TextureIndex,
+inline void PushQuad(renderer_state* State, u32 TextureIndex,
 		v4 P0, v2 UV0, v4 C0,
 		v4 P1, v2 UV1, v4 C1,
 		v4 P2, v2 UV2, v4 C2,
 		v4 P3, v2 UV3, v4 C3)
 {
-	PushQuad(TextureIndex,
+	PushQuad(State, TextureIndex,
 			P0, UV0, RGBAPack4x8(255.0f * C0),
 			P1, UV1, RGBAPack4x8(255.0f * C1),
 			P2, UV2, RGBAPack4x8(255.0f * C2),
 			P3, UV3, RGBAPack4x8(255.0f * C3));
 }
-inline void PushBitmap(u32 TextureIndex, rectangle2 SourceRect, rectangle2 DestRect, v4 Color)
+inline void PushBitmap(renderer_state* State, u32 TextureIndex, rectangle2 SourceRect, rectangle2 DestRect, v4 Color)
 {
     // NOTE(hugo): This might look a little bit fancy... and it is !!
     // Without this line, the rendering of exact pixel perfect tileset is fucked up
@@ -282,10 +293,18 @@ inline void PushBitmap(u32 TextureIndex, rectangle2 SourceRect, rectangle2 DestR
 	v2 UV3 = V2(SourceRect.Min.x, SourceRect.Min.y) + UVOffset;
 	v4 C3 = Color;
 
-	PushQuad(TextureIndex,
+	PushQuad(State, TextureIndex,
 			P0, UV0, C0,
 			P1, UV1, C1,
 			P2, UV2, C2,
 			P3, UV3, C3);
+}
+
+#define TILE_SIZE_IN_PIXELS 16
+gb_internal void PushTile(renderer_state* State, u32 TextureIndex, v2 Pos, v2 TileSetPos, v4 Color)
+{
+    rectangle2 DestRect = RectCenterHalfDim(TILE_SIZE_IN_PIXELS * Pos, 0.5f * V2(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS));
+    rectangle2 SourceRect = RectMinDim(TILE_SIZE_IN_PIXELS * TileSetPos, V2(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS));
+	PushBitmap(State, TextureIndex, SourceRect, DestRect, Color);
 }
 

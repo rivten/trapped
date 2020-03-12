@@ -23,32 +23,26 @@
 
 #include "renderer.cpp"
 
+gb_global renderer_state RendererState = {};
+
 void AppInit()
 {
-	RendererInit();
-}
-
-#define TILE_SIZE_IN_PIXELS 16
-gb_internal void PushTile(u32 TextureIndex, v2 Pos, v2 TileSetPos, v4 Color)
-{
-    rectangle2 DestRect = RectCenterHalfDim(TILE_SIZE_IN_PIXELS * Pos, 0.5f * V2(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS));
-    rectangle2 SourceRect = RectMinDim(TILE_SIZE_IN_PIXELS * TileSetPos, V2(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS));
-	PushBitmap(TextureIndex, SourceRect, DestRect, Color);
+	RendererInit(&RendererState);
 }
 
 void AppFrame()
 {
-	RendererBeginFrame();
+	RendererBeginFrame(&RendererState);
 
-	PushTile(0, V2(0.0f, 0.0f), V2(0, 13), V4(1.0f, 1.0f, 1.0f, 1.0f));
-	PushTile(0, V2(10, 10), V2(15, 0), V4(1.0f, 1.0f, 1.0f, 1.0f));
+	PushTile(&RendererState, 0, V2(0.0f, 0.0f), V2(0, 13), V4(1.0f, 1.0f, 1.0f, 1.0f));
+	PushTile(&RendererState, 0, V2(10, 10), V2(15, 0), V4(1.0f, 1.0f, 1.0f, 1.0f));
 
-	RendererEndFrame();
+	RendererEndFrame(&RendererState);
 }
 
 void AppCleanup()
 {
-	sg_shutdown();
+	RendererShutdown();
 }
 
 void AppEvent(const sapp_event* Event)
