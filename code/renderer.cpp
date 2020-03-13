@@ -51,7 +51,7 @@ gb_internal void RendererInit(renderer_state* State)
 	sg_desc GFXDesc = {};
 	sg_setup(&GFXDesc);
 
-    State->MaxQuadCount = 256;
+    State->MaxQuadCount = 2*256;
 	State->MaxVertexCount = 4 * State->MaxQuadCount;
 	State->MaxIndexCount = 6 * State->MaxQuadCount;
 
@@ -267,9 +267,9 @@ gb_internal void RendererEndFrame(renderer_state* State)
 	u32 AppHeight = sapp_height();
 	sg_pass_action Action = {};
 	Action.colors[0].action = SG_ACTION_CLEAR;
-	Action.colors[0].val[0] = 0.2f;
-	Action.colors[0].val[1] = 0.2f;
-	Action.colors[0].val[2] = 0.2f;
+	Action.colors[0].val[0] = 0.0f;
+	Action.colors[0].val[1] = 0.0f;
+	Action.colors[0].val[2] = 0.0f;
 	Action.colors[0].val[3] = 1.0f;
 
 	sg_update_buffer(State->VertexBuffer, State->VertexArray, State->VertexCount * sizeof(textured_vertex));
@@ -436,3 +436,14 @@ gb_internal void PushTextWithShadow(renderer_state* State, char* Text, v2 P, v4 
     PushText(State, Text, P, Color);
 }
 
+gb_internal void PushRect(renderer_state* State, v2 Min, v2 Max, v4 Color)
+{
+    rectangle2 SourceRect = {};
+    SourceRect.Min = V2(0, 0);
+    SourceRect.Max = V2(TEXTURE_ARRAY_DIM, TEXTURE_ARRAY_DIM);
+
+    rectangle2 DestRect = {};
+    DestRect.Min = Min;
+    DestRect.Max = Max;
+    PushBitmap(State, TextureType_White, SourceRect, DestRect, Color);
+}
