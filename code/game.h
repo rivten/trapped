@@ -13,6 +13,7 @@ enum entity_type
 	EntityType_Player,
 	EntityType_Wall,
 	EntityType_Ground,
+	EntityType_Table,
 
 	EntityType_Count,
 };
@@ -22,13 +23,11 @@ gb_global v2 TileSetPosFromType[]
 	V2(0, 13), // EntityType_Player,
 	V2(15, 0), // EntityType_Wall,
 	V2(8, 0), // EntityType_Ground,
+	V2(5, 11), // EntityType_Table,
 };
 
-enum entity_flag
-{
-	EntityFlag_None = 0,
-	EntityFlag_RoomConnection = 1 << 0,
-};
+struct game_state;
+typedef void(*on_collision)(game_state* GameState);
 
 struct entity
 {
@@ -36,7 +35,8 @@ struct entity
 	v2 TileSetP;
 	v4 Color;
 	entity_type Type;
-	u32 Flags;
+	b32 IsTraversable;
+	on_collision OnCollision;
 };
 
 struct game_state
@@ -47,12 +47,22 @@ struct game_state
 	u32 EntityCount;
 	entity Entities[256];
 
+	entity* PreviousCollidedEntity;
+
 	f32 JustSteppedOnConnectionTimer;
     f32 TextSize;
     b32 Initialized;
 };
 
-void PushEntity(game_state* GameState, v2 P, v4 C, entity_type Type, u32 Flags = EntityFlag_None)
+void HasJustSteppedOnConnectionTimer(game_state* GameState)
+{
+	if(GameState->PreviousCollidedEntity->OnCollision != HasJustSteppedOnConnectionTimer)
+	{
+		GameState->JustSteppedOnConnectionTimer = 5.0f;
+	}
+}
+
+entity* CreateDefaultEntity(game_state* GameState, v2 P, v4 C, entity_type Type)
 {
 	Assert(GameState->EntityCount < ArrayCount(GameState->Entities));
 	entity* Entity = GameState->Entities + GameState->EntityCount++;
@@ -61,48 +71,63 @@ void PushEntity(game_state* GameState, v2 P, v4 C, entity_type Type, u32 Flags =
 	Entity->Type = Type;
 	// NOTE(hugo): Do I need to store this ? Or could I compute it each render iteration ?
 	Entity->TileSetP = TileSetPosFromType[Type];
-	Entity->Flags = Flags;
+	Entity->IsTraversable = true;
+	Entity->OnCollision = 0;
+	return(Entity);
 }
 
 void PushPlayer(game_state* GameState, v2 P, v4 C)
 {
-	PushEntity(GameState, P, C, EntityType_Player);
+	CreateDefaultEntity(GameState, P, C, EntityType_Player);
 }
 
 void PushWall(game_state* GameState, v2 P, v4 C)
 {
-	PushEntity(GameState, P, C, EntityType_Wall);
+	entity* Entity = CreateDefaultEntity(GameState, P, C, EntityType_Wall);
+	Entity->IsTraversable = false;
 }
 
-void PushGround(game_state* GameState, v2 P, v4 C, u32 Flags = EntityFlag_None)
+void PushGround(game_state* GameState, v2 P, v4 C, b32 IsCorridor)
 {
-	PushEntity(GameState, P, C, EntityType_Ground, Flags);
+	entity* Entity = CreateDefaultEntity(GameState, P, C, EntityType_Ground);
+	if(IsCorridor)
+	{
+		Entity->OnCollision = HasJustSteppedOnConnectionTimer;
+	}
 }
 
-enum room_flag
+void PushTable(game_state* GameState, v2 P, v4 C)
 {
-	RoomFlag_None = 0,
-	RoomFlag_LeftHole = 1 << 0,
-	RoomFlag_RightHole = 1 << 1,
+	CreateDefaultEntity(GameState, P, C, EntityType_Table);
+}
+
+enum room_gen_flag
+{
+	RoomGenFlag_None = 0,
+	RoomGenFlag_LeftHole = 1 << 0,
+	RoomGenFlag_RightHole = 1 << 1,
+	RoomGenFlag_CenterTable = 1 << 2,
 };
 
-void CreateRoom(game_state* GameState, rectangle2i Rect, v4 WallC, v4 GroundC, u32 Flags = RoomFlag_None)
+void CreateRoom(game_state* GameState, rectangle2i Rect, v4 WallC, v4 GroundC, u32 Flags = RoomGenFlag_None)
 {
 	for(i32 X = Rect.MinX; X <= Rect.MaxX; ++X)
 	{
-		PushWall(GameState, V2(X, Rect.MinY), WallC);
-		PushWall(GameState, V2(X, Rect.MaxY), WallC);
-		for(i32 Y = Rect.MinY + 1; Y < Rect.MaxY; ++Y)
+		for(i32 Y = Rect.MinY; Y <= Rect.MaxY; ++Y)
 		{
-			if(X == Rect.MinX || X == Rect.MaxX)
+			if(Y == Rect.MinY || Y == Rect.MaxY)
 			{
-				b32 IsLeftHole = ((Flags & RoomFlag_LeftHole) != 0) && (X == Rect.MinX) && (Y == (Rect.MinY + Rect.MaxY)/2);
-				b32 IsRightHole = ((Flags & RoomFlag_RightHole) != 0) && (X == Rect.MaxX) && (Y == (Rect.MinY + Rect.MaxY)/2);
+				PushWall(GameState, V2(X, Y), WallC);
+			}
+			else if(X == Rect.MinX || X == Rect.MaxX)
+			{
+				b32 IsLeftHole = ((Flags & RoomGenFlag_LeftHole) != 0) && (X == Rect.MinX) && (Y == (Rect.MinY + Rect.MaxY)/2);
+				b32 IsRightHole = ((Flags & RoomGenFlag_RightHole) != 0) && (X == Rect.MaxX) && (Y == (Rect.MinY + Rect.MaxY)/2);
 				b32 IsHole = IsLeftHole || IsRightHole;
 
 				if(IsHole)
 				{
-					PushGround(GameState, V2(X, Y), GroundC, EntityFlag_RoomConnection);
+					PushGround(GameState, V2(X, Y), GroundC, true);
 				}
 				else
 				{
@@ -111,26 +136,21 @@ void CreateRoom(game_state* GameState, rectangle2i Rect, v4 WallC, v4 GroundC, u
 			}
 			else
 			{
-				PushGround(GameState, V2(X, Y), GroundC);
+				if(((Flags & RoomGenFlag_CenterTable) != 0) && 
+					(Y == (Rect.MaxY + Rect.MinY)/2 && X == (Rect.MaxX + Rect.MinX)/2))
+				{
+					PushTable(GameState, V2(X, Y), GroundC);
+				}
+				else
+				{
+					PushGround(GameState, V2(X, Y), GroundC, false);
+				}
 			}
 		}
 	}
 }
 
-gb_internal b32 MoveAllowed(game_state* GameState, v2 WantedP)
-{
-	for(u32 EntityIndex = 0; EntityIndex < GameState->EntityCount; ++EntityIndex)
-	{
-		entity* Entity = GameState->Entities + EntityIndex;
-		if(Entity->Type == EntityType_Wall && WantedP.x == Entity->P.x && WantedP.y == Entity->P.y)
-		{
-			return(false);
-		}
-	}
-	return(true);
-}
-
-gb_internal entity* GetUnderlyingEntity(game_state* GameState, v2 P)
+gb_internal entity* GetCollidableEntityAt(game_state* GameState, v2 P)
 {
 	for(u32 EntityIndex = 0; EntityIndex < GameState->EntityCount; ++EntityIndex)
 	{
@@ -152,8 +172,8 @@ void GameUpdateAndRender(game_input* Input, renderer_state* Renderer)
 		v4 WallC = ColorPalette0[0];
 		v4 GroundC = ColorPalette0[1];
 		v4 PlayerC = ColorPalette0[2];
-		CreateRoom(&GameState, RectMinMax(-5, -5, 5, 5), WallC, GroundC, RoomFlag_RightHole);
-		CreateRoom(&GameState, RectMinMax(6, -5, 16, 5), GroundC, WallC, RoomFlag_LeftHole);
+		CreateRoom(&GameState, RectMinMax(-5, -5, 5, 5), WallC, GroundC, RoomGenFlag_RightHole);
+		CreateRoom(&GameState, RectMinMax(6, -5, 16, 5), GroundC, WallC, RoomGenFlag_LeftHole | RoomGenFlag_CenterTable);
 		PushPlayer(&GameState, V2(-2.0f, -1.0f), PlayerC);
 
         GameState.Initialized = true;
@@ -184,29 +204,25 @@ void GameUpdateAndRender(game_input* Input, renderer_state* Renderer)
 				WantedP.y -= 1.0f;
 			}
 
-			if(MoveAllowed(&GameState, WantedP))
+			if(WantedP.x != Entity->P.x || WantedP.y != Entity->P.y)
 			{
-				Entity->P = WantedP;
-
-				entity* UnderlyingEntity = GetUnderlyingEntity(&GameState, WantedP);
-				if(UnderlyingEntity)
+				b32 MoveAllowed = true;
+				entity* CollidedEntity = GetCollidableEntityAt(&GameState, WantedP);
+				if(CollidedEntity)
 				{
-					if((UnderlyingEntity->Flags & EntityFlag_RoomConnection) != 0)
+					MoveAllowed = CollidedEntity->IsTraversable;
+					if(CollidedEntity->OnCollision)
 					{
-						if(GameState.JustSteppedOnConnectionTimer <= -1.0f)
-						{
-							GameState.JustSteppedOnConnectionTimer = 5.0f;
-						}
-					}
-					else
-					{
-						if(GameState.JustSteppedOnConnectionTimer <= 0.0f)
-						{
-							GameState.JustSteppedOnConnectionTimer = -1.0f;
-						}
+						CollidedEntity->OnCollision(&GameState);
 					}
 				}
+				if(MoveAllowed)
+				{
+					Entity->P = WantedP;
+					GameState.PreviousCollidedEntity = CollidedEntity;
+				}
 			}
+
 		}
 		PushTile(Renderer, Entity->P, Entity->TileSetP, Entity->Color);
 	}
@@ -220,7 +236,7 @@ void GameUpdateAndRender(game_input* Input, renderer_state* Renderer)
 		PushTextWithShadow(Renderer, "New Room", V2(0.0f, 200.0f), TextC);
 	}
 
-	PushRect(Renderer, V2(0.0f, 0.0f), V2(100.0f, 100.0f), V4(1.0f, 0.0f, 0.0f, 0.5f));
+	//PushRect(Renderer, V2(0.0f, 0.0f), V2(100.0f, 100.0f), V4(1.0f, 0.0f, 0.0f, 0.5f));
 
 }
 
