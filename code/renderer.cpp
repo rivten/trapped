@@ -397,10 +397,11 @@ void PushChar(renderer_state* State, u8 C, v2* P, v4 Color)
 
 void PushText(renderer_state* State, char* Text, v2 P, v4 Color)
 {
+    v2 TempP = V2(P.x, -P.y);
     usize Len = strlen(Text);
     for(u32 Index = 0; Index < Len; ++Index)
     {
-        PushChar(State, Text[Index], &P, Color);
+        PushChar(State, Text[Index], &TempP, Color);
     }
 }
 
