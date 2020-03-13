@@ -204,13 +204,7 @@ gb_internal void RendererInit(renderer_state* State)
 
 		void main()
 		{
-            int TexIndex = FragTexIndex;
-            // TODO(hugo): Figure out why this doesn't work...
-            if(FragTexIndex > 1)
-            {
-                TexIndex = 1;
-            }
-            vec3 ArrayUV = vec3(FragUV.x, FragUV.y, float(TexIndex));
+            vec3 ArrayUV = vec3(FragUV.x, FragUV.y, float(FragTexIndex));
             float textureA = texture(TextureSampler, ArrayUV).a;
 			FinalColor = FragColor * textureA;
 		}
