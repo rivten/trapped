@@ -51,6 +51,8 @@ struct game_state
 
 	f32 JustSteppedOnConnectionTimer;
     f32 TextSize;
+	b32 TableHit;
+
     b32 Initialized;
 };
 
@@ -96,9 +98,16 @@ void PushGround(game_state* GameState, v2 P, v4 C, b32 IsCorridor)
 	}
 }
 
+void ActivateTableText(game_state* GameState)
+{
+	GameState->TableHit = true;
+}
+
 void PushTable(game_state* GameState, v2 P, v4 C)
 {
-	CreateDefaultEntity(GameState, P, C, EntityType_Table);
+	entity* Entity = CreateDefaultEntity(GameState, P, C, EntityType_Table);
+	Entity->IsTraversable = false;
+	Entity->OnCollision = ActivateTableText;
 }
 
 enum room_gen_flag
@@ -234,6 +243,11 @@ void GameUpdateAndRender(game_input* Input, renderer_state* Renderer)
 		v4 TextC = ColorPalette0[4];
 		TextC.a = Alpha;
 		PushTextWithShadow(Renderer, "New Room", V2(0.0f, 200.0f), TextC);
+	}
+
+	if(GameState.TableHit)
+	{
+		PushTextWithShadow(Renderer, "Table is hurt !!", V2(0.0f, -200.0f), ColorPalette0[4]);
 	}
 
 	//PushRect(Renderer, V2(0.0f, 0.0f), V2(100.0f, 100.0f), V4(1.0f, 0.0f, 0.0f, 0.5f));
