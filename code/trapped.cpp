@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#define SOKOL_WIN32_FORCE_MAIN
 #define SOKOL_IMPL
 #define SOKOL_GLCORE33
 #include "sokol_app.h"
@@ -32,8 +33,8 @@ void AppFrame()
 {
 	RendererBeginFrame(&RendererState);
 
-	PushTile(&RendererState, 0, V2(0.0f, 0.0f), V2(0, 13), V4(1.0f, 1.0f, 1.0f, 1.0f));
-	PushTile(&RendererState, 0, V2(10, 10), V2(15, 0), V4(1.0f, 1.0f, 1.0f, 1.0f));
+	PushTile(&RendererState, V2(0.0f, 0.0f), V2(0, 13), V4(1.0f, 1.0f, 1.0f, 1.0f));
+	PushTile(&RendererState, V2(10, 10), V2(15, 0), V4(1.0f, 1.0f, 1.0f, 1.0f));
 
     PushText(&RendererState, "Hello, sailor!", V2(2, -2), V4(0, 0, 0, 1));
     PushText(&RendererState, "Hello, sailor!", V2(0, 0), V4(1, 0, 1, 1));

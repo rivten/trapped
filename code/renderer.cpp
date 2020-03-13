@@ -28,6 +28,7 @@ struct renderer_state
 	u32 IndexCount;
 	u16* IndexArray;
 
+    u32 MaxQuadCount;
 	u32 MaxVertexCount;
 	u32 MaxIndexCount;
 
@@ -36,13 +37,23 @@ struct renderer_state
 	stbtt_bakedchar* BakedCharData;
 };
 
+enum texture_type
+{
+    TextureType_White,
+    TextureType_Tileset,
+    TextureType_FontAtlas,
+
+    TextureType_Count,
+};
+
 gb_internal void RendererInit(renderer_state* State)
 {
 	sg_desc GFXDesc = {};
 	sg_setup(&GFXDesc);
 
-	State->MaxVertexCount = 1 << 8;
-	State->MaxIndexCount = 1 << 8;
+    State->MaxQuadCount = 256;
+	State->MaxVertexCount = 4 * State->MaxQuadCount;
+	State->MaxIndexCount = 6 * State->MaxQuadCount;
 
 	u32 VertexSize = State->MaxVertexCount * sizeof(textured_vertex);
 	State->VertexArray = (textured_vertex *)gb_malloc(VertexSize);
@@ -66,9 +77,18 @@ gb_internal void RendererInit(renderer_state* State)
 	IndexBufferDesc.label = "IndexBuffer";
 	State->IndexBuffer = sg_make_buffer(&IndexBufferDesc);
 
-	u32 ImageContentSize = 2 * 4 * TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM;
+    u32 SliceContentSize = 4 * TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM;
+	u32 ImageContentSize = TextureType_Count * SliceContentSize;
 	u8* PixelContent = (u8 *)gb_malloc(ImageContentSize);
 	defer(gb_mfree(PixelContent));
+
+    {
+        // NOTE(hugo): Load the white texture
+        for(u32 PixelByteIndex = 0; PixelByteIndex < SliceContentSize; ++PixelByteIndex)
+        {
+            (PixelContent + TextureType_White * SliceContentSize)[PixelByteIndex] = 0xFF;
+        }
+    }
 
 	{
 		// NOTE(hugo): Loading the tileset bitmap
@@ -104,7 +124,7 @@ gb_internal void RendererInit(renderer_state* State)
 			}
 		}
 
-		gb_memcopy(PixelContent, TilesetPixels, TilesetByteSize);
+		gb_memcopy(PixelContent + TextureType_Tileset * SliceContentSize, TilesetPixels, TilesetByteSize);
 	}
 
 	{
@@ -134,7 +154,7 @@ gb_internal void RendererInit(renderer_state* State)
 
 		stbtt_BakeFontBitmap(FontFileContent, 0, FontHeight, TempFontPixels, TEXTURE_ARRAY_DIM, TEXTURE_ARRAY_DIM, State->FontCharBegin, State->FontCharCount, State->BakedCharData);
 
-		u32 FontByteSize = TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM * 4;
+		u32 FontByteSize = SliceContentSize;
 		u8* FontPixels = (u8 *)gb_malloc(FontByteSize);
 		defer(gb_mfree(FontPixels));
 		for(u32 ByteIndex = 0; ByteIndex < TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM; ++ByteIndex)
@@ -145,17 +165,13 @@ gb_internal void RendererInit(renderer_state* State)
 			FontPixels[4 * ByteIndex + 3] = TempFontPixels[ByteIndex];
 		}
 
-		gb_memcopy(PixelContent + (TEXTURE_ARRAY_DIM * TEXTURE_ARRAY_DIM * 4), FontPixels, FontByteSize);
+		gb_memcopy(PixelContent + TextureType_FontAtlas * SliceContentSize, FontPixels, FontByteSize);
 	}
-
-	sg_image_content ImageContent = {};
-	ImageContent.subimage[0][0].ptr = PixelContent;
-	ImageContent.subimage[0][0].size = ImageContentSize;
 
     sg_image_desc ImageDesc = {};
     ImageDesc.width = TEXTURE_ARRAY_DIM;
     ImageDesc.height = TEXTURE_ARRAY_DIM;
-	ImageDesc.layers = 2;
+	ImageDesc.layers = TextureType_Count;
     ImageDesc.usage = SG_USAGE_IMMUTABLE;
     ImageDesc.type = SG_IMAGETYPE_ARRAY;
     ImageDesc.min_filter = SG_FILTER_NEAREST;
@@ -163,7 +179,9 @@ gb_internal void RendererInit(renderer_state* State)
     ImageDesc.wrap_u = SG_WRAP_MIRRORED_REPEAT;
     ImageDesc.wrap_v = SG_WRAP_MIRRORED_REPEAT;
     ImageDesc.wrap_w = SG_WRAP_MIRRORED_REPEAT;
-    ImageDesc.content = ImageContent;
+    ImageDesc.pixel_format = SG_PIXELFORMAT_RGBA8;
+    ImageDesc.content.subimage[0][0].ptr = PixelContent;
+    ImageDesc.content.subimage[0][0].size = ImageContentSize;
     sg_image Image = sg_make_image(&ImageDesc);
 
 	sg_shader_desc ShaderDesc = {};
@@ -202,11 +220,16 @@ gb_internal void RendererInit(renderer_state* State)
 
 		out vec4 FinalColor;
 
+        vec4 Hadamard(vec4 A, vec4 B)
+        {
+            return(vec4(A.x * B.x, A.y * B.y, A.z * B.z, A.w * B.w));
+        }
+
 		void main()
 		{
             vec3 ArrayUV = vec3(FragUV.x, FragUV.y, float(FragTexIndex));
-            float textureA = texture(TextureSampler, ArrayUV).a;
-			FinalColor = FragColor * textureA;
+            vec4 TextureColor = texture(TextureSampler, ArrayUV);
+			FinalColor = Hadamard(FragColor, TextureColor);
 		}
 	)FOO";
 	ShaderDesc.fs.images[0].type = SG_IMAGETYPE_ARRAY;
@@ -218,7 +241,7 @@ gb_internal void RendererInit(renderer_state* State)
 	PipelineDesc.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT4;
 	PipelineDesc.layout.attrs[1].format = SG_VERTEXFORMAT_FLOAT2;
 	PipelineDesc.layout.attrs[2].format = SG_VERTEXFORMAT_UBYTE4N;
-	PipelineDesc.layout.attrs[3].format = SG_VERTEXFORMAT_UBYTE4;
+	PipelineDesc.layout.attrs[3].format = SG_VERTEXFORMAT_FLOAT;
 	PipelineDesc.index_type = SG_INDEXTYPE_UINT16;
     PipelineDesc.blend.enabled = true;
     PipelineDesc.blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
@@ -266,7 +289,7 @@ void RendererShutdown()
 	sg_shutdown();
 }
 
-inline void PushQuad(renderer_state* State, u32 TextureIndex,
+inline void PushQuad(renderer_state* State, texture_type TextureType,
 		v4 P0, v2 UV0, u32 C0,
 		v4 P1, v2 UV1, u32 C1,
 		v4 P2, v2 UV2, u32 C2,
@@ -290,6 +313,8 @@ inline void PushQuad(renderer_state* State, u32 TextureIndex,
     UV2 = Hadamard(InvUV, UV2);
     UV3 = Hadamard(InvUV, UV3);
 
+    Assert(TextureType < TextureType_Count);
+    u32 TextureIndex = (u32)(TextureType);
     Vert[0].P = P3;
     Vert[0].UV = UV3;
     Vert[0].Color = C3;
@@ -322,19 +347,19 @@ inline void PushQuad(renderer_state* State, u32 TextureIndex,
     Index[5] = VI + 2;
 }
 
-inline void PushQuad(renderer_state* State, u32 TextureIndex,
+inline void PushQuad(renderer_state* State, texture_type TextureType,
 		v4 P0, v2 UV0, v4 C0,
 		v4 P1, v2 UV1, v4 C1,
 		v4 P2, v2 UV2, v4 C2,
 		v4 P3, v2 UV3, v4 C3)
 {
-	PushQuad(State, TextureIndex,
+	PushQuad(State, TextureType,
 			P0, UV0, RGBAPack4x8(255.0f * C0),
 			P1, UV1, RGBAPack4x8(255.0f * C1),
 			P2, UV2, RGBAPack4x8(255.0f * C2),
 			P3, UV3, RGBAPack4x8(255.0f * C3));
 }
-inline void PushBitmap(renderer_state* State, u32 TextureIndex, rectangle2 SourceRect, rectangle2 DestRect, v4 Color)
+inline void PushBitmap(renderer_state* State, texture_type TextureType, rectangle2 SourceRect, rectangle2 DestRect, v4 Color)
 {
     // NOTE(hugo): This might look a little bit fancy... and it is !!
     // Without this line, the rendering of exact pixel perfect tileset is fucked up
@@ -359,7 +384,7 @@ inline void PushBitmap(renderer_state* State, u32 TextureIndex, rectangle2 Sourc
 	v2 UV3 = V2(SourceRect.Min.x, SourceRect.Min.y) + UVOffset;
 	v4 C3 = Color;
 
-	PushQuad(State, TextureIndex,
+	PushQuad(State, TextureType,
 			P0, UV0, C0,
 			P1, UV1, C1,
 			P2, UV2, C2,
@@ -367,11 +392,11 @@ inline void PushBitmap(renderer_state* State, u32 TextureIndex, rectangle2 Sourc
 }
 
 #define TILE_SIZE_IN_PIXELS 16
-gb_internal void PushTile(renderer_state* State, u32 TextureIndex, v2 Pos, v2 TileSetPos, v4 Color)
+gb_internal void PushTile(renderer_state* State, v2 Pos, v2 TileSetPos, v4 Color)
 {
     rectangle2 DestRect = RectCenterHalfDim(TILE_SIZE_IN_PIXELS * Pos, 0.5f * V2(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS));
     rectangle2 SourceRect = RectMinDim(TILE_SIZE_IN_PIXELS * TileSetPos, V2(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS));
-	PushBitmap(State, TextureIndex, SourceRect, DestRect, Color);
+	PushBitmap(State, TextureType_Tileset, SourceRect, DestRect, Color);
 }
 
 void PushChar(renderer_state* State, u8 C, v2* P, v4 Color)
@@ -392,7 +417,7 @@ void PushChar(renderer_state* State, u8 C, v2* P, v4 Color)
     DestRect.Min.y = -Quad.y1;
     DestRect.Max.x = Quad.x1;
     DestRect.Max.y = -Quad.y0;
-    PushBitmap(State, 1, SourceRect, DestRect, Color);
+    PushBitmap(State, TextureType_FontAtlas, SourceRect, DestRect, Color);
 }
 
 void PushText(renderer_state* State, char* Text, v2 P, v4 Color)
