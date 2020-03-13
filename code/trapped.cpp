@@ -7,8 +7,11 @@
 
 #undef _GNU_SOURCE
 #undef _LARGEFILE64_SOURCE
+#undef WIN32_LEAN_AND_MEAN
 #define GB_IMPLEMENTATION
 #include "gb.h"
+#undef F32_MAX
+#define F32_MAX 3.40282346e+38f
 
 #define Assert(cond) GB_ASSERT(cond)
 
