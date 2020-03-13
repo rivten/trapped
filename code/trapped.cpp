@@ -35,6 +35,9 @@ void AppFrame()
 	PushTile(&RendererState, 0, V2(0.0f, 0.0f), V2(0, 13), V4(1.0f, 1.0f, 1.0f, 1.0f));
 	PushTile(&RendererState, 0, V2(10, 10), V2(15, 0), V4(1.0f, 1.0f, 1.0f, 1.0f));
 
+    PushText(&RendererState, "Hello, sailor!", V2(2.0f, 2.0f), V4(0, 0, 0, 1));
+    PushText(&RendererState, "Hello, sailor!", V2(0, 0), V4(1, 0, 1, 1));
+
 	RendererEndFrame(&RendererState);
 }
 

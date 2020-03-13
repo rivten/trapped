@@ -204,7 +204,13 @@ gb_internal void RendererInit(renderer_state* State)
 
 		void main()
 		{
-            vec3 ArrayUV = vec3(FragUV.x, FragUV.y, float(FragTexIndex));
+            int TexIndex = FragTexIndex;
+            // TODO(hugo): Figure out why this doesn't work...
+            if(FragTexIndex > 1)
+            {
+                TexIndex = 1;
+            }
+            vec3 ArrayUV = vec3(FragUV.x, FragUV.y, float(TexIndex));
             float textureA = texture(TextureSampler, ArrayUV).a;
 			FinalColor = FragColor * textureA;
 		}
@@ -372,5 +378,35 @@ gb_internal void PushTile(renderer_state* State, u32 TextureIndex, v2 Pos, v2 Ti
     rectangle2 DestRect = RectCenterHalfDim(TILE_SIZE_IN_PIXELS * Pos, 0.5f * V2(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS));
     rectangle2 SourceRect = RectMinDim(TILE_SIZE_IN_PIXELS * TileSetPos, V2(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS));
 	PushBitmap(State, TextureIndex, SourceRect, DestRect, Color);
+}
+
+void PushChar(renderer_state* State, u8 C, v2* P, v4 Color)
+{
+    stbtt_aligned_quad Quad = {};
+    Assert(C >= State->FontCharBegin);
+    Assert(C < State->FontCharBegin + State->FontCharCount);
+    stbtt_GetBakedQuad(State->BakedCharData, TEXTURE_ARRAY_DIM, TEXTURE_ARRAY_DIM, C - State->FontCharBegin, &P->x, &P->y, &Quad, true);
+
+    rectangle2 SourceRect = {};
+    SourceRect.Min.x = TEXTURE_ARRAY_DIM * Quad.s0;
+    SourceRect.Min.y = TEXTURE_ARRAY_DIM * Quad.t0;
+    SourceRect.Max.x = TEXTURE_ARRAY_DIM * Quad.s1;
+    SourceRect.Max.y = TEXTURE_ARRAY_DIM * Quad.t1;
+
+    rectangle2 DestRect = {};
+    DestRect.Min.x = Quad.x0;
+    DestRect.Min.y = -Quad.y1;
+    DestRect.Max.x = Quad.x1;
+    DestRect.Max.y = -Quad.y0;
+    PushBitmap(State, 1, SourceRect, DestRect, Color);
+}
+
+void PushText(renderer_state* State, char* Text, v2 P, v4 Color)
+{
+    usize Len = strlen(Text);
+    for(u32 Index = 0; Index < Len; ++Index)
+    {
+        PushChar(State, Text[Index], &P, Color);
+    }
 }
 
