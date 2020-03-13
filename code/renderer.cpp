@@ -430,3 +430,9 @@ void PushText(renderer_state* State, char* Text, v2 P, v4 Color)
     }
 }
 
+gb_internal void PushTextWithShadow(renderer_state* State, char* Text, v2 P, v4 Color)
+{
+    PushText(State, Text, P + V2(2, -2), V4(0, 0, 0, 1));
+    PushText(State, Text, P, Color);
+}
+
