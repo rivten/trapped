@@ -24,6 +24,13 @@
 #include "intrinsics.h"
 #include "math.h"
 
+#include "imgui.cpp"
+#include "imgui_draw.cpp"
+#include "imgui_widgets.cpp"
+#include "imgui_demo.cpp"
+#define SOKOL_IMGUI_IMPL
+#include "sokol_imgui.h"
+
 #include "renderer.cpp"
 #include "input.h"
 
@@ -47,13 +54,10 @@ void AppInit()
 
 void AppFrame()
 {
-    {
-        const double dt = stm_sec(stm_laptime(&LastTime));
+	const double dt = stm_sec(stm_laptime(&LastTime));
+	NewInput->dtForFrame = dt;
 
-        NewInput->dtForFrame = dt;
-    }
-
-	RendererBeginFrame(&RendererState);
+	RendererBeginFrame(&RendererState, sapp_width(), sapp_height(), dt);
 
     GameUpdateAndRender(NewInput, &RendererState);
     if(NewInput->QuitRequested)
@@ -110,6 +114,7 @@ gb_internal void ProcessKeyboardMessage(game_button_state* NewState, b32 IsDown)
 
 void AppEvent(const sapp_event* Event)
 {
+	simgui_handle_event(Event);
 	switch(Event->type)
 	{
 		case SAPP_EVENTTYPE_KEY_DOWN:

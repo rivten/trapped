@@ -1,6 +1,6 @@
-#define STB_TRUETYPE_IMPLEMENTATION
+//#define STB_TRUETYPE_IMPLEMENTATION
 //#include "stb_rect_pack.h"
-#include "stb_truetype.h"
+//#include "stb_truetype.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -253,12 +253,17 @@ gb_internal void RendererInit(renderer_state* State)
 	State->Bindings.vertex_buffers[0] = State->VertexBuffer;
 	State->Bindings.index_buffer = State->IndexBuffer;
 	State->Bindings.fs_images[0] = Image;
+
+	simgui_desc_t ImGuiDesc = {};
+	simgui_setup(&ImGuiDesc);
 }
 
-gb_internal void RendererBeginFrame(renderer_state* State)
+gb_internal void RendererBeginFrame(renderer_state* State, i32 AppWidth, i32 AppHeight, f64 dt)
 {
 	State->VertexCount = 0;
 	State->IndexCount = 0;
+
+	simgui_new_frame(AppWidth, AppHeight, dt);
 }
 
 gb_internal void RendererEndFrame(renderer_state* State)
@@ -279,6 +284,7 @@ gb_internal void RendererEndFrame(renderer_state* State)
 	sg_apply_pipeline(State->Pipeline);
 	sg_apply_bindings(&State->Bindings);
 	sg_draw(0, State->IndexCount, 1);
+	simgui_render();
 	sg_end_pass();
 
 	sg_commit();
@@ -286,6 +292,7 @@ gb_internal void RendererEndFrame(renderer_state* State)
 
 void RendererShutdown()
 {
+	simgui_shutdown();
 	sg_shutdown();
 }
 
